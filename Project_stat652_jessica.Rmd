@@ -1,0 +1,218 @@
+---
+title: 'Statistics 652: Project - Lending Club Loan History Challenge'
+author: "Jessica Grover"
+output:
+  pdf_document: default
+---
+
+The aim of the Project is to properly categorize the loan status of authorized loans by using various machine learning algorithms. The data used is LendingClub data from 2012 to 2014. The objective is to equal or improve upon the accuracies attained in the LoanDefault-Prediction competition on Github, which is primarily a classifier-building challenge rather than a quantitative prediction model. The effective application of machine learning algorithms to this dataset might have significant ramifications for the lending sector and loan approval accuracy.
+
+
+## Introduction:-
+
+The goal of this project is to create a machine learning model that uses the logistic regression to categorize the Loan Status of authorized LendingClub loans from 2012 to 2014. We are downloading the data set from Kaggle. Collecting data, studying and preparing data, training a model on the data, assessing model performance, and improving model performance are all implemented in this project.
+
+For categorical classification, logistic regression is the best machine learning method. Because of its simplicity and efficiency, it is one of the most used models. The model predicts the likelihood of an occurrence based on a collection of predictor factors. The goal of this project is to apply logistic regression to predict whether or not a consumer will purchase a product. We will employ a data set that includes demographic information as well as the consumers' browsing history. Our objective is to create an accurate model that can forecast the data.
+
+## Step 1: Data collection
+
+The core data file, which comprises data from 2007 to 2018, will be supplemented with the sanctioned loans from 2012 to 2014 when the data has been downloaded in CSV format.
+Some of the important variables of the data are:
+
+loan_amnt - Loan amount of the customer.
+
+funded_amnt - approved by the bank.
+
+int_rate - interest rate of the loan.
+
+installment - Installment done by customer.
+
+annual_inc - Annual income of the customer.
+
+# importing important libraries
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(dplyr)
+library(pacman)
+library(pROC)
+p_load(tidyverse, tidymodels, naniar, DataExplorer, janitor, discrim)
+```
+
+```{r, warning=FALSE,message=FALSE}
+lending_club_data_2012_2014 <- read_csv("lending_club_data_2012_2014_small.csv")
+head(lending_club_data_2012_2014)
+```
+
+## Step 2: exploring and preparing the data for modelling
+
+An exploratory data analysis is done to get insights to the data once it has been gathered and combined. This will involve looking for any missing data, investigating the distribution of the variables, and spotting any outliers. To get the data ready for model training, data cleaning and pre processing methods including imputation, normalization, and feature engineering will be used. Here in loan status is factor with Fully Paid as level 1 and Charged Off as 0.
+
+```{r}
+data_loan_status <- lending_club_data_2012_2014 %>% 
+  select(loan_amnt, funded_amnt,int_rate,installment,annual_inc,total_rec_int,last_pymnt_amnt,total_rec_int,last_pymnt_amnt,tot_cur_bal,avg_cur_bal,percent_bc_gt_75,total_bc_limit,term,home_ownership,loan_status,year,dti)
+  
+data_loan_status <- data_loan_status [data_loan_status$loan_status %in% c("Fully Paid", "Charged Off"), ]
+
+data_loan_status<- data_loan_status %>% 
+  mutate(loan_status = ifelse(loan_status == "Fully Paid",1,0),
+         loan_status = as_factor(loan_status),
+         term = as_factor(term),
+         home_ownership = as_factor(home_ownership),
+         year=as_factor(year)) %>% 
+  drop_na(loan_status)
+```
+
+#Spliting the data
+```{r}
+data_loan_status_split <- initial_split(data_loan_status, prop = 0.75)
+data_loan_status_split
+```
+
+#missing Values
+```{r}
+vis_miss(data_loan_status)
+```
+
+#recipe
+```{r}
+data_loan_status_recipe <- training(data_loan_status_split) %>%
+  recipe(loan_status ~ .) %>%
+  step_nzv(all_predictors()) %>%
+  step_rm(term, home_ownership,year) %>% 
+  step_impute_median(all_numeric()) %>%
+  prep()
+```
+
+#Baking test
+```{r}
+data_loan_status_testing <- data_loan_status_recipe %>%
+  bake(testing(data_loan_status_split)) 
+```
+
+#juicing
+```{r}
+data_loan_status_training <- juice(data_loan_status_recipe)
+```
+
+## Step 3: training a model on the data
+
+We will use Logistic Regression to train the training data. A collection of input factors and a binary result are modeled using logistic regression to determine the connection between them. Using the logistic function, it calculates the likelihood of the result depending on the input factors. After that, based on a threshold value, the algorithm assigns the result to one of the two potential values.
+
+### Logistic Regression
+
+```{r}
+data_loan_status_glm <- logistic_reg(penalty = 0.001, mixture = 0.5) %>% 
+  set_engine("glmnet") %>%
+  set_mode("classification") %>%
+  fit(loan_status ~ ., data = data_loan_status_training)
+data_loan_status_glm
+```
+## Step 4: evaluating model performance
+
+The result demonstrates the usefulness and interpretability of logistic regression as a technique for classification issues. The model's accuracy is 89%, its Kappa was 0.52 and confusion matrix, ROC curve is given below. These results show how logistic regression may be used to forecast binary events.
+
+#acuracy
+```{r}
+data_loan_status_glm %>%
+  predict(data_loan_status_testing) %>%
+  bind_cols(data_loan_status_testing) %>%
+  metrics(truth = loan_status, estimate = .pred_class)
+```
+# confusion matrix
+
+```{r}
+data_loan_status_glm %>%
+  predict(data_loan_status_testing) %>%
+  bind_cols(data_loan_status_testing) %>%
+  conf_mat(truth = loan_status, estimate = .pred_class)
+```
+
+
+# ROC
+```{r}
+data_loan_status_glm %>%
+  predict(data_loan_status_testing, type = "prob") %>%
+  bind_cols(data_loan_status_testing) %>%
+  roc_curve(loan_status, .pred_0) %>%
+  autoplot() 
+```
+## Step 5: Improving model performance
+
+Techniques like feature selection and hyperparameter tweaking will be used to enhance the model's performance. At each stage, the model's performance will be assessed to see if it has improved.
+
+## All Models and its accuracy
+
+| Model       | Accuracy |
+|-------------|----------|
+| Null model  | 82%      |
+| KNN         | 85%      |
+| GLM         | 89%      |
+| Naive Bayes | 72%      |
+
+# Null model
+
+```{r}
+data_loan_status_null <- null_model() %>%
+  set_engine("parsnip") %>%
+  set_mode("classification") %>% 
+  fit(loan_status ~ ., data = data_loan_status_training)
+data_loan_status_null
+```
+
+# accuracy of null model
+```{r}
+data_loan_status_null %>%
+  predict(data_loan_status_testing) %>%
+  bind_cols(data_loan_status_testing) %>%
+  metrics(truth = loan_status, estimate = .pred_class)
+```
+# knn
+```{r}
+data_loan_status_knn <- nearest_neighbor(neighbors = 11) %>% 
+  set_engine("kknn") %>%
+  set_mode("classification") %>%
+  fit(loan_status ~ ., data = data_loan_status_training)
+data_loan_status_knn 
+```
+# accuracy knn
+```{r}
+data_loan_status_knn %>%
+  predict(data_loan_status_testing) %>%
+  bind_cols(data_loan_status_testing) %>%
+  metrics(truth = loan_status, estimate = .pred_class)
+```
+# Naive Bayes
+```{r}
+data_loan_status_nb <- naive_Bayes(Laplace = 1) %>% 
+  set_engine("klaR") %>%
+  set_mode("classification") %>%
+  fit(loan_status ~ ., data = data_loan_status_training)
+```
+
+# accuracy NB
+```{r,,warning=FALSE}
+data_loan_status_nb %>%
+  predict(data_loan_status_testing) %>%
+  bind_cols(data_loan_status_testing) %>%
+  metrics(truth = loan_status, estimate = .pred_class)
+```
+# GLM
+```{r}
+data_loan_status_glm <- logistic_reg(penalty = 0.001, mixture = 0.5) %>%
+  set_engine("glmnet") %>%
+  set_mode("classification") %>%
+  fit(loan_status ~ ., data = data_loan_status_training)
+```
+
+# accuracy GLM
+```{r}
+data_loan_status_glm %>%
+  predict(data_loan_status_testing) %>%
+  bind_cols(data_loan_status_testing) %>%
+  metrics(truth = loan_status, estimate = .pred_class)
+```
+
+## Conclusion:-
+
+In conclusion, using input characteristics, we constructed and assessed a logistic regression model to forecast the likelihood of a loan status. Our results demonstrate that logistic regression, is a useful and understandable strategy for classification difficulties. The performance of the model can be enhanced in the future by investigating different classification techniques and incorporating further characteristics.
